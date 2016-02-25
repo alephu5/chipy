@@ -10,11 +10,14 @@ from numpy import cos, pi, sqrt
 
 
 class I:
-    params = ['Peak Voltage', 'Polarisation angle']
-    units = ['V', 'deg']
+    params = ['Peak voltage', 'Polarisation angle', 'Offset voltage']
+    units = ['V', 'deg', 'V']
 
-    def f(self, ang, I0, polarisation):
-        return I0 * cos(pi/180 * (ang - polarisation))**2
+    def f(self, ang, I0, polarisation, offset):
+        return I0 * cos(pi/180 * (ang - polarisation))**2 + offset
+
+    def pre_process(self, ang):
+        return ang
 
     def post_process(self, popt, pcov, rchisq, ax, data_name):
         # Ensures that angles are within same quadrants.
@@ -29,7 +32,7 @@ class I:
         print('Having reduced chi-squared', rchisq)
         ax.set_xlabel(self.params[0] + '(' + self.units[0] + ')')
         ax.set_ylabel(self.params[1] + '(' + self.units[1] + ')')
-        ax.vlines(x=popt[1], ymin=0, ymax=popt[0])
+        ax.vlines(x=popt[1], ymin=0, ymax=popt[0] + popt[2])
         print()
 
 
