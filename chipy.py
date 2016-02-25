@@ -4,6 +4,7 @@ import argparse
 import numpy as np
 import sys
 import os
+import os.path
 from copy import deepcopy
 import scipy.optimize
 from importlib import import_module
@@ -16,6 +17,9 @@ measurements and their errors. The last pair of columns are assumed to
 correspond to the dependent variable (a scalar), and those preceeding are an
 independent vector."""
 
+# Adds working directing to path variable, so modules can be imported.
+sys.path.append(os.getcwd())
+
 
 def parseargs():
     parser = argparse.ArgumentParser(DESCRIPTION)
@@ -27,7 +31,7 @@ def parseargs():
                 the data.
 
                 If no model is supplied, a null hypothesis is assumed""")
-    parser.add_argument('-i', type=str, default=sys.stdin,
+    parser.add_argument('-i', type=str, default=sys.stdin, nargs='*',
                         metavar='INPUT',
                         help="""Columns of experimental data, assumed to be
                         alternating between experiment and errors.""")
@@ -103,35 +107,40 @@ def min_chisq(f, X, Y, Yerr):
         popt = f.c
         dof = len(Y) - len(popt)
         rchisq = chisq(f, X, Y, Yerr) / dof
-        rchisq_err = 0
+        # rchisq_err = 0
     else:
         popt, pcov = scipy.optimize.curve_fit(f, X, Y, sigma=Yerr)
         dof = len(Y) - len(popt)
         rchisq = chisq(f, X, Y, Yerr, *popt) / dof
-        rchisq_err = chisq_err(f, X, Y, Yerr, popt) / dof
-    return popt, pcov, rchisq, rchisq_err
+        # rchisq_err = chisq_err(f, X, Y, Yerr, popt) / dof
+        # Removed because of questionable accuracy for multiple parameters.
+    return popt, pcov, rchisq  # , rchisq_err
 
 
 def main():
     args = parseargs()
     if args.l:
+        # Load layout
         font = load_attribute(args.l + '.font')
         matplotlib.rc('font', **font)
-    (X, Xerr), (Y, Yerr) = unpack_data(args.i, args.delimiter, True)
-    headings = get_headings(args.i, args.delimiter)
-    f = args.f
-    popt, pcov, rchisq, rchisq_err = min_chisq(f, X, Y, Yerr)
-    args.o.write('Optimal params: ' + str(popt) + os.linesep +
-                 'With uncertainty: ' + str(np.sqrt(pcov)) + os.linesep +
-                 'Reduced chi-squared: ' + str(rchisq) + os.linesep +
-                 'Having error :' + str(rchisq_err) + os.linesep)
 
-    g = np.vectorize(f)
-    plt.errorbar(X, Y, Yerr, label='Measurements', lw=0, marker='x',
-                 ms=3, mew=5, capsize=5, mec='green', mfc='red')
-    plt.plot(X, g(X, *popt), label='Model', lw=2, color='magenta')
-    plt.xlabel(headings[0])
-    plt.ylabel(headings[-2])
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    for path in args.i:
+        f_class = args.f()
+        f = f_class.f
+        preproc = f_class.pre_process
+        (X, Xerr), (Y, Yerr) = unpack_data(path, args.delimiter, True)
+        X = preproc(X)
+        popt, pcov, rchisq = min_chisq(f, X, Y, Yerr)
+
+        g = np.vectorize(f)
+        fname = os.path.splitext(os.path.basename(path))[0]
+        ax.errorbar(X, Y, Yerr, label='Measured ' + fname, lw=0, marker='x',
+                    ms=0.1, mew=2, capsize=1)
+        S = np.sort(X)
+        ax.plot(S, g(S, *popt), label='Model ' + fname, lw=2)
+        f_class.post_process(popt, pcov, rchisq, ax, fname)
     plt.legend()
     plt.show()
 
