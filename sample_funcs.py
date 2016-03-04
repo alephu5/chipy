@@ -35,7 +35,6 @@ class I:
         ax.vlines(x=popt[1], ymin=0, ymax=popt[0] + popt[2])
         print()
 
-
 class Drude:
     params = ['A', '$\lambda_0$']
     units = ['rad m$^4$/g', 'nm']

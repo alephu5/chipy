@@ -35,15 +35,20 @@ def parseargs():
                         metavar='INPUT',
                         help="""Columns of experimental data, assumed to be
                         alternating between experiment and errors.""")
-    parser.add_argument('-o', type=open, default=sys.stdout,
-                        metavar='PATH',
-                        help='Path to output the results. Defaults to stdout.')
+    parser.add_argument('-c', type=str, nargs='+', metavar='CONTROL',
+                        help="""Uses the argument as a control condition. All
+                        fitted parameters are subtracted from this when
+                        reporting the final result and the errors are
+                        propagated.""")
     parser.add_argument('--delimiter', type=str, default=',',
                         help="""Character used to separate columns.
                         Defaults to ','.""")
-    parser.add_argument('-l', type=str, metavar='Layout file',
+    parser.add_argument('-l', type=str, metavar='LAYOUT FILE',
                         help="""Path to python script containing matplotlib
                         layout parameters.""")
+    parser.add_argument('-s', type=str, metavar='SAVE GRAPH',
+                        help="""Automatically save graph in the specified
+                        directory.""")
     return parser.parse_args()
 
 
@@ -141,7 +146,10 @@ def main():
         S = np.sort(X)
         ax.plot(S, g(S, *popt), label='Model ' + fname, lw=2)
         f_class.post_process(popt, pcov, rchisq, ax, fname)
+
     plt.legend()
+    if args.s:
+        fig.savefig(os.path.join(args.s, fname + '.png'))
     plt.show()
 
 
