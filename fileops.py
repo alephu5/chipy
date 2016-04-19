@@ -49,7 +49,7 @@ def split_file(data, split_column, data_name):
     for key in keys:
         indices = (data[:, split_column] == key)
         datum = data[indices]
-        yield data_name + '-' + str(key), np.delete(datum, split_column, 1)
+        yield data_name + '^' + str(key), np.delete(datum, split_column, 1)
 
 
 def get_headings(path, delimiter):

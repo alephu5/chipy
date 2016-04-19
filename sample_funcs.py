@@ -41,6 +41,12 @@ class I:
         if not c_popt:
             c_popt = zeros(popt.shape)
             c_uncerts = zeros(uncerts.shape)
+        if '^' in data_name:
+            cat = data_name.split('^')[-1]
+            data_name = data_name.split('^')[:-1]
+        else:
+            cat = ''
+
         row = data_name.split('-')
         for i, c in enumerate(row):
             fil = filter(str.isdigit, c)
