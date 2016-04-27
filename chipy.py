@@ -8,6 +8,8 @@ from copy import deepcopy
 import scipy.optimize
 import matplotlib.pyplot as plt
 import matplotlib
+from matplotlib.pyplot import cm
+from mpl_toolkits.axes_grid1 import Grid
 from fileops import load_attribute, unpack_data, write_report
 
 DESCRIPTION = """Automates common operations for chi-squared analysis used in
@@ -26,6 +28,7 @@ class Hypothesis:
     # units = ['m s$^-1$', 'm']
 
     bounds = (-np.inf, np.inf)  # Limits on the fitted parameters
+    p0 = None
 
     def f(self, X, a, b):
         """The hypothesis function; which relates independent variable(s) X
@@ -47,7 +50,15 @@ class Hypothesis:
 
         pass
 
-    def update_graph(self, data_name, data, popt, fig, ax_main, ax_res):
+    def update_graph(
+            self,
+            data_name,
+            data,
+            popt,
+            uncerts,
+            fig,
+            ax_main,
+            ax_res):
         ax_main.set_xlabel(self.params[0] + '(' + self.units[0] + ')')
         ax_main.set_ylabel(self.params[1] + '(' + self.units[1] + ')')
         ax_main.vlines(x=popt[1], ymin=0, ymax=popt[0] + popt[2])
@@ -75,10 +86,11 @@ class Hypothesis:
             uncert = '%s' % float('%.1g' % uncerts[i])
             precision = len(uncert)
             if '.' in uncert:
-                precision -= uncert.index('.')
+                precision -= (uncert.index('.'))
             print(param, '=', round(popt[i], precision), '+/-',
                   uncert, self.units[i])
-        print('Having reduced chi-squared', rchisq, os.linesep)
+        print('Having reduced chi-squared', rchisq)
+        print()
 
     def report(self, c_popt, popt, c_uncerts, uncerts, c_rchisq, rchisq,
                data_name):
@@ -152,25 +164,45 @@ def parseargs():
     return parser.parse_args()
 
 
-def uncert(f, X, Y, Xerr, Yerr, *fparams):
-    try:
-        # To compute the gradient, X must be presented as a set of arrays. If
-        # it contains just scalar values, then these must be converted to the
-        # necessary format using reshape.
+def uncert(f, X, Y, Xerr, Yerr, Perr, *fparams):
+    if X.ndim <= 1:
+        X_space = X.reshape((X.shape[0], 1))
+        Xerr_space = Xerr.reshape(Xerr.shape[0], 1)
+    else:
+        X_space = X.transpose()
+        Xerr_space = Xerr.transpose()
 
-        X.shape[1]
-        X_space = X
-    except IndexError:
-        X_space = X.reshape((1, X.shape[0]))
+    P_space = np.array(fparams, ndmin=2)
+    if Perr.ndim <= 1:
+        Perr_space = Perr.reshape(1, Perr.shape[0])
+    else:
+        Perr_space = Perr.tranpose()
 
-    grad = np.array([scipy.optimize.approx_fprime(x, f, 1e-8, *fparams)
-                     for x in X_space.transpose()]).transpose()
-    return np.sqrt(np.sum((grad*Xerr)**2, axis=0) + Yerr**2)
+    idx = np.repeat(X_space.shape[1], len(fparams))
+    T = np.insert(X_space, idx, P_space, axis=1)
+    Terr = np.insert(Xerr_space, idx, Perr_space, axis=1)
+
+    def g(t):
+        x_length = X_space.shape[1]
+        X = t[:x_length]
+        args = t[x_length:]
+        return f(X, *args)
+
+    grad = np.array([scipy.optimize.approx_fprime(t, g, 1e-8)
+                     for t in T])
+    grad[np.isinf(grad)] = 0
+    grad[np.isnan(grad)] = 0
+    Terr[np.isinf(Terr)] = 0
+    Terr[np.isnan(Terr)] = 0
+    return np.sqrt(np.sum((grad*Terr)**2, axis=1) + Yerr**2)
 
 
-def chisq(f, X, Y, Xerr, Yerr, *fparams):
-    sigma = uncert(f, X, Y, Xerr, Yerr, *fparams)
-    return (((f(X, *fparams) - Y) / sigma) ** 2).sum()
+def chisq(f, X, Y, Xerr, Yerr, Perr, *fparams):
+    sigma = uncert(f, X, Y, Xerr, Yerr, Perr, *fparams)
+    chis = ((f(X, *fparams) - Y) / sigma) ** 2
+    chis[np.isnan(chis)] = 0
+    chis[np.isinf(chis)] = 0
+    return chis.sum()
 
 
 def chisq_err(f, X, Y, sigma, popt, tol=1e-8):
@@ -191,21 +223,25 @@ def chisq_err(f, X, Y, sigma, popt, tol=1e-8):
 
 
 def min_chisq(f, X, Y, Xerr, Yerr, bounds, p0=None):
-    popt, pcov = scipy.optimize.curve_fit(f, X, Y, sigma=Yerr,
-                                          p0=p0, bounds=bounds)
+    popt, pcov = scipy.optimize.curve_fit(f, X, Y, sigma=Yerr, p0=p0,
+                                          bounds=bounds, absolute_sigma=True)
     dof = len(Y) - len(popt)
-    rchisq = chisq(f, X, Y, Xerr, Yerr, *popt) / dof
+    Perr = np.sqrt(pcov.diagonal())
+    rchisq = chisq(f, X, Y, Xerr, Yerr, Perr, *popt) / dof
     # rchisq_err = chisq_err(f, X, Y, Yerr, popt) / dof
     # Removed because of questionable accuracy for multiple parameters.
-    uncerts = np.sqrt(pcov.diagonal())
-    return popt, uncerts, rchisq  # , rchisq_err
+    return popt, Perr, rchisq  # , rchisq_err
 
 
 def test_hyp(f_class, data, cpopt=None):
     f = f_class.f
     (X, Xerr), (Y, Yerr) = data
     X = f_class.pre_process(X)
-    return min_chisq(f, X, Y, Xerr, Yerr, f_class.bounds, cpopt)
+    if f_class.p0 is not None:
+        p0 = f_class.p0
+    else:
+        p0 = cpopt
+    return min_chisq(f, X, Y, Xerr, Yerr, f_class.bounds, p0)
 
 
 def analysis_update(data, f_class, color, graph, report,
@@ -217,20 +253,15 @@ def analysis_update(data, f_class, color, graph, report,
     for i, (name, dat) in enumerate(data):
         (popt, uncerts, rchisq) = test_hyp(f_class, dat)
         f_class.post_process(popt, uncerts, rchisq, name)
-        f_class.update_graph(name, dat, popt, color, fig, *axes)
+        if graph:
+            f_class.update_graph(name, dat, popt, uncerts, color, fig, *axes)
 
         if notify:
             f_class.notify(popt, uncerts, rchisq, name)
 
         if report:
-            rpt = f_class.report(
-                c_popt,
-                popt,
-                c_uncerts,
-                uncerts,
-                c_rchisq,
-                rchisq,
-                name)
+            rpt = f_class.report(c_popt, popt, c_uncerts, uncerts, c_rchisq,
+                                 rchisq, name)
             write_report(report, rpt)
 
     return popt, uncerts, rchisq
@@ -246,37 +277,47 @@ def main():
     graph = None
     if args.show or args.s:
         fig = plt.figure()
-        ax_main = fig.add_subplot(211, label='Main')
-        ax_res = fig.add_subplot(212, label='Residuals')
+        ax_main, ax_res = Grid(fig, rect=111, nrows_ncols=(2,1),
+                               axes_pad=0.2, label_mode='L')
+        # ax_main.get_xaxis().set_visible(False)
+
+        # div = make_axes_locatable(ax_main)
+        # ax_res = div.append_axes('bottom', pad=0.05, label='Residuals',
+        #                          size='50%')
+        # ax_res = fig.add_subplot(212, label='Residuals')
         graph = (fig, (ax_main, ax_res))
 
     f_class = args.f()
     control = (None, None, None)
 
+    colors = iter(cm.brg(np.linspace(0, 1, len(args.i) + bool(args.c))))
+
     if args.c:
         _, dat = unpack_data(args.c, args.delimiter).__next__()
         data = [('control', dat)]
-        control = analysis_update(data, f_class, 'blue', graph, report=False,
-                                  control=control, notify=False)
-
+        control = analysis_update(data, f_class, colors.__next__(), graph,
+                                  report=False, control=control, notify=False)
     for path in args.i:
+        color = colors.__next__()
         try:
             data = unpack_data(path, args.delimiter, filtr=args.filtr,
                                split_column=args.split)
-            analysis_update(data, f_class, 'green', graph, args.r,
+            analysis_update(data, f_class, color, graph, args.r,
                             control=control, notify=True)
 
-        except Exception as e:
+        except Exception:
             print ('Could not process', path, os.linesep)
-            raise e
+            return None
 
     if args.s:
+        plt.tight_layout()
         bname = os.path.basename(path)
         name = os.path.splitext(bname)[0]
         fig.savefig(os.path.join(args.s, name + '.png'), dpi=160,
                     bbox_inches='tight', pad_inches=0)
 
     if args.show:
+        plt.tight_layout()
         plt.show()
 
 
