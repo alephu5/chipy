@@ -11,6 +11,7 @@ import matplotlib
 from matplotlib.pyplot import cm
 from mpl_toolkits.axes_grid1 import Grid
 from fileops import load_attribute, unpack_data, write_report
+from decimal import Decimal
 
 DESCRIPTION = """Automates common operations for chi-squared analysis used in
 level 2 labs. The data should be presented as columns alternating between
@@ -23,26 +24,27 @@ class Hypothesis:
 
     """Base class used to build hypothesis classes. Provides basic forms of the
     necessary functions, to avoid boilerplate in the plugins."""
-    # params = ['Gradient', 'Offset'] # Set meaningful names for free
-    #                                   parameters to display to the user.
-    # units = ['m s$^-1$', 'm']
-
+    # Set meaningful names for free parameters to display to the user.
+    params = ['Constant']
+    units = ['']
+    xlabel = 'x'
+    ylabel = 'y'
     bounds = (-np.inf, np.inf)  # Limits on the fitted parameters
     p0 = None
 
-    def f(self, X, a, b):
+    def f(self, X, c):
         """The hypothesis function; which relates independent variable(s) X
         to dependent variable Y as f(X, a, b,...) = Y. The remaining parameters
         are constants that can be adjusted to fit the data.
 
         If there are multiple independent variables X should be array-like."""
-        return a*X + b
+        return np.repeat(c, np.size(X))
 
-    def pre_process(self, X):
+    def pre_process(self, A, B):
         """Gives the option of modifying the function before using it to fit
         the hypothesis. This feature was added to use the modulus 180 of an
         angle (ie 270deg == 90 deg)."""
-        return X
+        return A, B
 
     def post_process(self, popt, uncerts, rchisq, data_name):
         """Provides a feature for modifying the results after they are obtained.
@@ -50,45 +52,53 @@ class Hypothesis:
 
         pass
 
-    def update_graph(
-            self,
-            data_name,
-            data,
-            popt,
-            uncerts,
-            fig,
-            ax_main,
-            ax_res):
-        ax_main.set_xlabel(self.params[0] + '(' + self.units[0] + ')')
-        ax_main.set_ylabel(self.params[1] + '(' + self.units[1] + ')')
-        ax_main.vlines(x=popt[1], ymin=0, ymax=popt[0] + popt[2])
-
-        ax_res.set_title('Residuals')
+    def update_graph(self, data_name, data, popt, Perr, color, fig,
+                     ax_main, ax_res):
+        ax_res.set_xlabel(self.xlabel)
+        ax_res.set_ylabel('Measured - model')
+        ax_main.set_ylabel(self.ylabel)
 
         (X, Xerr), (Y, Yerr) = data
-        S = np.sort(X)
-        model = self.f(S, *popt)
+        model = self.f(X, *popt)
 
-        ax_main.errorbar(
-            X, Y, Yerr, label='Measured ' + data_name, lw=0, marker='x',
-            ms=0.1, mew=2, capsize=1)
-        ax_main.plot(S, model, label='Model ' + data_name, lw=2)
-        ax_res.errorbar(X, Y - self.f(X, *popt), np.sqrt(Xerr**2 + Yerr**2),
-                        label=data_name, lw=0.1)
-        ax_res.legend()
-        ax_main.legend()
+        s = np.argsort(X)
+
+        ax_main.errorbar(X[s], Y[s], Yerr[s], label='Measured ' + data_name,
+                         linestyle='None', marker='x', ms=10, capsize=0,
+                         color='black')
+        ax_main.plot(X[s], model[s], label='Model ' + data_name, lw=1,
+                     color=color)
+
+        sigma = np.sqrt(uncert(self.f, X, Y, Xerr, Perr, popt)**2 + Yerr**2)
+        ax_res.plot(X[s], np.zeros(len(X)), linestyle='--', color='black',
+                    lw=0.5)
+        ax_res.errorbar(X[s], Y[s] - model[s], sigma[s], label=data_name,
+                        linestyle='None', marker='x', ms=10, capsize=0,
+                        color=color)
 
     def notify(self, popt, uncerts, rchisq, data_name):
         """Provides a function for communicating to the user at run-time about
         the results."""
         print(data_name + ':')
         for i, param in enumerate(self.params):
-            uncert = '%s' % float('%.1g' % uncerts[i])
-            precision = len(uncert)
-            if '.' in uncert:
-                precision -= (uncert.index('.'))
-            print(param, '=', round(popt[i], precision), '+/-',
-                  uncert, self.units[i])
+            prec = 0
+            if uncerts[i] != 0:
+                prec = int(np.log10(uncerts[i]))
+            uncert = uncerts[i]
+            try:
+                uncert = Decimal(uncerts[i]).quantize(Decimal(10)
+                                                      ** (prec - 1)).normalize()
+            except:
+                pass
+            val = popt[i]
+            try:
+                val = Decimal(popt[i]).quantize(Decimal(10)
+                                                ** (prec - 1)).normalize()
+            except:
+                # Don't try rounding value.
+                pass
+
+            print(param, '=', val, '+/-', uncert, self.units[i])
         print('Having reduced chi-squared', rchisq)
         print()
 
@@ -120,8 +130,8 @@ def parseargs():
     parser = argparse.ArgumentParser(DESCRIPTION)
     parser.add_argument(
         '-f', type=load_attribute,
-        default=lambda X, c: c, metavar='f(X)',
-        help="""A string of the form [module].[function] which
+        default=Hypothesis, metavar='f(X)',
+        help="""A string of the form [module].[class] which
                 represents the theoretical model that you expect between
                 the data.
 
@@ -164,7 +174,7 @@ def parseargs():
     return parser.parse_args()
 
 
-def uncert(f, X, Y, Xerr, Yerr, Perr, *fparams):
+def uncert(f, X, Y, Xerr, Perr, *fparams):
     if X.ndim <= 1:
         X_space = X.reshape((X.shape[0], 1))
         Xerr_space = Xerr.reshape(Xerr.shape[0], 1)
@@ -194,11 +204,15 @@ def uncert(f, X, Y, Xerr, Yerr, Perr, *fparams):
     grad[np.isnan(grad)] = 0
     Terr[np.isinf(Terr)] = 0
     Terr[np.isnan(Terr)] = 0
-    return np.sqrt(np.sum((grad*Terr)**2, axis=1) + Yerr**2)
+    return np.sqrt(np.sum((grad*Terr)**2, axis=1))
+
+
+def uncert_bad(f, X, Y, Xerr, Perr, *fparams):
+    return 0
 
 
 def chisq(f, X, Y, Xerr, Yerr, Perr, *fparams):
-    sigma = uncert(f, X, Y, Xerr, Yerr, Perr, *fparams)
+    sigma = np.sqrt(uncert(f, X, Y, Xerr, Perr, *fparams)**2 + Yerr**2)
     chis = ((f(X, *fparams) - Y) / sigma) ** 2
     chis[np.isnan(chis)] = 0
     chis[np.isinf(chis)] = 0
@@ -236,7 +250,6 @@ def min_chisq(f, X, Y, Xerr, Yerr, bounds, p0=None):
 def test_hyp(f_class, data, cpopt=None):
     f = f_class.f
     (X, Xerr), (Y, Yerr) = data
-    X = f_class.pre_process(X)
     if f_class.p0 is not None:
         p0 = f_class.p0
     else:
@@ -251,6 +264,7 @@ def analysis_update(data, f_class, color, graph, report,
         fig, axes = graph
 
     for i, (name, dat) in enumerate(data):
+        dat = f_class.pre_process(*dat)
         (popt, uncerts, rchisq) = test_hyp(f_class, dat)
         f_class.post_process(popt, uncerts, rchisq, name)
         if graph:
@@ -277,7 +291,7 @@ def main():
     graph = None
     if args.show or args.s:
         fig = plt.figure()
-        ax_main, ax_res = Grid(fig, rect=111, nrows_ncols=(2,1),
+        ax_main, ax_res = Grid(fig, rect=111, nrows_ncols=(2, 1),
                                axes_pad=0.2, label_mode='L')
         # ax_main.get_xaxis().set_visible(False)
 
@@ -305,7 +319,8 @@ def main():
             analysis_update(data, f_class, color, graph, args.r,
                             control=control, notify=True)
 
-        except Exception:
+        except Exception as e:
+            raise e
             print ('Could not process', path, os.linesep)
             return None
 

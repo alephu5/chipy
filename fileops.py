@@ -1,6 +1,12 @@
 #! /usr/bin/python3
 
+VERSION = 2.0
+
+# Change list
+# [20-10-16]
+
 from importlib import import_module
+import imp
 import numpy as np
 import sys
 import os
@@ -17,7 +23,11 @@ def unpack_data(path, delimiter, filtr=False, split_column=-1):
     If filtr is True, values larger than the error are removed.
 
     If split_column is given, the data is split into lumps with a column
-    value in that column."""
+    value in that column, e.g if split_column=(n-1) [n.b we count from 0] and
+    the nth column contains trial number, chemical type etc. this value will
+    be used to categorise the rest of the data and the other procedures
+    will run sequentially on each category, as if they were in different files."""
+
     raw = np.loadtxt(path, delimiter=delimiter, skiprows=1)
     data_name = os.path.splitext(os.path.basename(path))[0]
 
@@ -61,7 +71,7 @@ def get_headings(path, delimiter):
 
 def load_attribute(astring):
     m, a = astring.split('.')
-    mdl = import_module(m)
+    mdl = imp.load_source('module', m + '.py')
     return getattr(mdl, a)
 
 
