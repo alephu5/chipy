@@ -4,25 +4,25 @@
 This is a small command-line program that can facilitate hypothesis testing by computing the reduced chi-squared. I built it during my undergraduate physics degree and so no longer update it. The GitHub repository is still active so if you have a bug-fix or want to implement a new feature please submit a pull request.
 
 Requirements:
-Python version >=3.0
-SciPy version >=0.17.0
-numpy version >=1.10.4
-matplotlib version >= 1.5.1
+Python version >=3.0  
+SciPy version >=0.17.0  
+numpy version >=1.10.4  
+matplotlib version >= 1.5.1  
 
 ## Introduction
 The experimental data should be stored in a '.csv' file with columns alternate between measurements and their errors (xᵢ, σᵢ; y, Σ). The last pair of columns are assumed to correspond to the dependent variable (a scalar), and all those preceeding are independent variables. A mathematical function f with adjustable parameters is fitted to the data f(x₁, ..., xₙ) = y. The resultant best-fit model is graphed, the optimised parameter values are listed with their respective errors, and the reduced chi-squared statistic is computed.
 
 ## Quick start
-The most basic functionality can be seen by running:
-
-`python3 ./chipy.py -i demo/sample_data.csv`
-
-which will try to fit a horizontal line f(x₁, ..., xₙ) = y = c to the data.
-
-If you run the previous command you will see that the model does not describe the data at all, so let's try some different ones. In the demo directory there is a python file called 'sample_models.py' that contains a linear and quadratic model, contained within the classes 'Linear' and 'Quadratic' respectively. We can fit these by running the commands:
-
-`python3 ./chipy.py -i demo/sample_data.csv -f demo/sample_models.Linear`
-`python3 ./chipy.py -i demo/sample_data.csv -f demo/sample_models.Quadratic`
+The most basic functionality can be seen by running:  
+  
+`python3 ./chipy.py -i demo/sample_data.csv`  
+  
+which will try to fit a horizontal line f(x₁, ..., xₙ) = y = c to the data.  
+  
+If you run the previous command you will see that the model does not describe the data at all, so let's try some different ones. In the demo directory there is a python file called 'sample_models.py' that contains a linear and quadratic model, contained within the classes 'Linear' and 'Quadratic' respectively. We can fit these by running the commands:  
+  
+`python3 ./chipy.py -i demo/sample_data.csv -f demo/sample_models.Linear`  
+`python3 ./chipy.py -i demo/sample_data.csv -f demo/sample_models.Quadratic`  
 
 ## Detailed instructions
 Optional arguments:
