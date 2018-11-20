@@ -1,4 +1,4 @@
-#ChiPy - Chi² Hypothesis testing
+# ChiPy - Chi² Hypothesis testing
 
 ## Preamble
 This is a small command-line program that can facilitate hypothesis testing by computing the reduced chi-squared. I built it during my undergraduate physics degree and so no longer update it. The GitHub repository is still active so if you have a bug-fix or want to implement a new feature please submit a pull request.
